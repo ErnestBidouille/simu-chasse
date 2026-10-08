@@ -18,12 +18,17 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px
 input, textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; }
 textarea { min-height: 64px; resize: vertical; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
-.row { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-top: 12px; }
+.row { display: grid; gap: 10px; }
+.c1 { grid-template-columns: 1fr; }
+.c2 { grid-template-columns: 1fr 1fr; }
+.c3 { grid-template-columns: 1fr 1fr 1fr; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--accent); margin: 20px 0 8px; padding-top: 14px; border-top: 1px solid var(--line); }
+h2[style] { border-top: 0; padding-top: 0; }
 button { margin-top: 14px; padding: 10px 18px; border: 0; border-radius: 6px; background: var(--accent); color: var(--bg); font: 600 15px system-ui, sans-serif; cursor: pointer; }
 button:disabled { opacity: .6; cursor: wait; }
 .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-th, td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th, td { text-align: right; padding: 6px 5px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 th { font-size: 12px; color: var(--muted); font-weight: 600; }
 th:first-child, td:first-child { text-align: left; }
 tr.zero td { color: var(--muted); }
@@ -38,17 +43,23 @@ tr.zero td { color: var(--muted); }
   <p class="sub">Risque de grosse riposte et pertes selon la taille de la chasse (modèle Bidouillezzz, calé sur de vraies chasses).</p>
 
   <form class="card" id="f">
+    <h2 style="margin-top:0">Armée</h2>
     <label for="paste">Coller l’armée du jeu (facultatif)</label>
     <textarea id="paste" placeholder="ex. Troupes en chasses : 3 244 Jeunes Soldates Naines, 699 Soldates Naines, 86 Naines d'Elites, 1 273 Jeunes Soldates, 68 Soldates"></textarea>
     <div class="hint">Remplit les cases ci-dessous ; tu peux aussi les remplir à la main.</div>
     <div class="grid" id="units" style="margin-top:12px"></div>
-    <div class="row">
-      <div><label for="tdc">Terrain (cm²)</label><input id="tdc" inputmode="numeric" required></div>
+    <h2>Terrain</h2>
+    <div class="row c1"><div><label for="tdc">Terrain à l’arrivée de la chasse (cm²)</label><input id="tdc" inputmode="numeric" required></div></div>
+    <h2>Niveaux</h2>
+    <div class="row c3">
       <div><label for="weapons">Armes</label><input id="weapons" inputmode="numeric" value="0"></div>
       <div><label for="shield">Bouclier</label><input id="shield" inputmode="numeric" value="0"></div>
-      <div><label for="huntSpeed">Vitesse de chasse</label><input id="huntSpeed" inputmode="numeric" value="0"></div>
-      <div><label for="min">Risque min (%)</label><input id="min" inputmode="numeric" value="15"></div>
-      <div><label for="max">Risque max (%)</label><input id="max" inputmode="numeric" value="30"></div>
+      <div><label for="huntSpeed" title="Vitesse de chasse">VC</label><input id="huntSpeed" inputmode="numeric" value="0"></div>
+    </div>
+    <h2>Risque de grosse riposte</h2>
+    <div class="row c2">
+      <div><label for="min">Min (%)</label><input id="min" inputmode="numeric" value="15"></div>
+      <div><label for="max">Max (%)</label><input id="max" inputmode="numeric" value="30"></div>
     </div>
     <button id="go" type="submit">Simuler</button>
   </form>
@@ -67,7 +78,7 @@ const ORDER = ['JSN', 'SN', 'NE', 'JS', 'S', 'SE', 'C', 'CE', 'A', 'AE', 'Tk', '
 const $ = (id) => document.getElementById(id);
 const num = (s) => Number(String(s ?? '').replace(/[\s  .]/g, '').replace(',', '.')) || 0;
 const fmt = (n) => Math.round(n).toLocaleString('fr-FR');
-const dur = (s) => { const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return `${h} h ${String(m).padStart(2, '0')}`; };
+const dur = (s) => { const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return `${h}h${String(m).padStart(2, '0')}`; };
 
 for (const k of ORDER) $('units').insertAdjacentHTML('beforeend', `<div><label for="u-${k}">${k}</label><input id="u-${k}" inputmode="numeric" placeholder="0"></div>`);
 
@@ -103,9 +114,9 @@ $('f').addEventListener('submit', async (e) => {
     const line = (x, cls = '') => `<tr class="${cls}"><td>${fmt(x.taille)}</td><td>${x.risque.toLocaleString('fr-FR')} %</td><td>${fmt(x.pertes)}</td><td>${fmt(x.pertesGrosse)}</td><td>${fmt(x.pertesMoy)}</td><td>${dur(x.duree)}</td></tr>`;
     const rows = [r.sansRisque && line(r.sansRisque, 'zero'), ...r.rows.map((x) => line(x))].filter(Boolean).join('');
     const text = ['Taille | Risque | Pertes hab. | Pertes grosse riposte | Pertes moy. | Durée', ...[r.sansRisque, ...r.rows].filter(Boolean).map((x) => `${x.taille} | ${x.risque} % | ${x.pertes} | ${x.pertesGrosse} | ${x.pertesMoy} | ${dur(x.duree)}`)].join('\n');
-    out.innerHTML = `<div class="scroll"><table><thead><tr><th>Taille (cm²)</th><th>Risque</th><th>Pertes hab.</th><th>Pertes grosse riposte</th><th>Pertes moy.</th><th>Durée</th></tr></thead><tbody>${rows || '<tr><td colspan="6">Aucune taille dans cette plage de risque.</td></tr>'}</tbody></table></div>
+    out.innerHTML = `<div class="scroll"><table><thead><tr><th>Taille</th><th>Risque</th><th>Pertes</th><th>Grosse rip.</th><th>Moy.</th><th>Durée</th></tr></thead><tbody>${rows || '<tr><td colspan="6">Aucune taille dans cette plage de risque.</td></tr>'}</tbody></table></div>
       <button type="button" id="copy">Copier le tableau</button>
-      <p class="note">Pertes en unités les plus faibles (elles meurent en premier), blessée comprise. Ligne grisée : la plus grosse chasse sans risque de grosse riposte. Plus grosse chasse gagnée : ${fmt(r.plusGrosse.taille)} cm² (${r.plusGrosse.risque} % de risque).</p>`;
+      <p class="note">Taille en cm². Pertes : chasse habituelle / en grosse riposte / moyenne, en unités les plus faibles (elles meurent en premier), blessée comprise. Ligne grisée : la plus grosse chasse sans risque de grosse riposte. Plus grosse chasse gagnée : ${fmt(r.plusGrosse.taille)} cm² (${r.plusGrosse.risque} % de risque).</p>`;
     $('copy').onclick = () => navigator.clipboard?.writeText(text).then(() => { $('copy').textContent = 'Copié ✓'; });
   } catch (err) {
     out.innerHTML = `<p class="err">Serveur injoignable (${err.message}).</p>`;
