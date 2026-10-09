@@ -38,19 +38,19 @@ tr.zero td { color: var(--muted); }
 .new { background: var(--pick); border: 1px solid var(--accent); border-radius: 10px; padding: 10px 40px 10px 14px; margin-bottom: 16px; position: relative; font-size: 14px; }
 .new b { color: var(--accent); }
 .new .x { position: absolute; top: 6px; right: 8px; margin: 0; padding: 2px 8px; background: transparent; color: var(--muted); font-size: 16px; }
-.loss { display: grid; grid-template-columns: 1fr 1.3fr auto; gap: 10px; align-items: end; margin-top: 8px; }
+.loss { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 10px; align-items: end; margin-top: 8px; }
 .loss label.chk { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--ink); margin: 0 0 9px; white-space: nowrap; }
 .loss label.chk input { width: auto; }
 select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; }
 .sum { font-size: 13px; color: var(--muted); margin-top: 8px; }
-@media (max-width: 520px) { .loss { grid-template-columns: 1fr 1fr; } .loss label.chk { grid-column: 1 / -1; margin-bottom: 0; } }
+@media (max-width: 520px) { .loss { grid-template-columns: 1fr 1fr; } .loss > div:first-child { grid-column: 1 / -1; } }
 </style>
 </head>
 <body>
 <main>
   <h1>🐜 Simulateur de chasse</h1>
   <p class="sub">Risque de grosse riposte et pertes selon la taille de la chasse (modèle Bidouillezzz, calé sur de vraies chasses).</p>
-  <div class="new" id="new" hidden><b>Nouveau</b> · Pertes de terrain prévues (une attaque prend au plus 20 % du terrain, ou plusieurs attaques) avant le départ ou pendant le trajet, et heure de départ : le tableau donne l’heure d’arrivée de chaque taille. <button type="button" class="x" id="newx" title="Fermer">×</button></div>
+  <div class="new" id="new" hidden><b>Nouveau</b> · Pertes de terrain prévues (en 1 attaque, 20 % du terrain au plus, ou montant exact) avant le départ ou pendant le trajet, et heure de départ : le tableau donne l’heure d’arrivée de chaque taille. <button type="button" class="x" id="newx" title="Fermer">×</button></div>
 
   <form class="card" id="f">
     <h2 style="margin-top:0">Armée</h2>
@@ -65,7 +65,7 @@ select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-r
     </div>
     <label style="margin-top:12px">Pertes de terrain prévues (facultatif)</label>
     <div id="losses"></div>
-    <div class="hint">Une attaque prend au plus 20 % du terrain ; coche « plusieurs attaques » si la perte est découpée (chacune prend jusqu’à 20 % de ce qui reste). Avant le départ : la chasse est plus courte. Pendant le trajet : le risque se calcule sur le terrain à l’arrivée.</div>
+    <div class="hint">« 1 attaque » : une seule attaque prend au plus 20 % du terrain (3 000 sur 12 000 → 2 400 réels). « Montant exact » : tu perds exactement ce montant, en autant d’attaques qu’il faut. Avant le départ : la chasse est plus courte. Pendant le trajet : le risque se calcule sur le terrain à l’arrivée.</div>
     <div class="sum" id="sum"></div>
     <h2>Niveaux</h2>
     <div class="row c3">
@@ -102,7 +102,7 @@ for (const k of ORDER) $('units').insertAdjacentHTML('beforeend', `<div><label f
 for (const i of [1, 2]) $('losses').insertAdjacentHTML('beforeend', `<div class="loss">
   <div><label for="l${i}">Perte ${i} (cm² ou %)</label><input id="l${i}" placeholder="ex. 3000 ou 20 %"></div>
   <div><label for="w${i}">Quand</label><select id="w${i}"><option value="avant">avant le départ</option><option value="trajet">pendant le trajet</option></select></div>
-  <label class="chk"><input type="checkbox" id="s${i}"> plusieurs attaques</label></div>`);
+  <div><label for="s${i}">Combien</label><select id="s${i}"><option value="">1 attaque (20 % max)</option><option value="exact">montant exact</option></select></div></div>`);
 
 // perte réelle : au plus 20 % du terrain par attaque, ou en plusieurs attaques (chacune 20 % de ce qui reste)
 const realLoss = (T, raw, split) => {
@@ -121,8 +121,9 @@ function terrains() {
   for (const when of ['avant', 'trajet']) {
     for (const i of [1, 2]) {
       if ($(`w${i}`).value !== when || !$(`l${i}`).value.trim()) continue;
-      const l = realLoss(T, $(`l${i}`).value, $(`s${i}`).checked);
-      out.lost.push({ i, when, l, asked: $(`l${i}`).value.trim() });
+      const l = realLoss(T, $(`l${i}`).value, $(`s${i}`).value === 'exact');
+      const v = $(`l${i}`).value.trim();
+      out.lost.push({ i, when, l, exact: $(`s${i}`).value === 'exact', want: Math.round(/%/.test(v) ? T * num(v.replace('%', '')) / 100 : num(v)) });
       T -= l;
     }
     if (when === 'avant') out.dep = T;
@@ -133,7 +134,7 @@ function terrains() {
 const showSum = () => {
   const t = terrains();
   $('sum').textContent = t.lost.length
-    ? `Pertes réelles : ${t.lost.map((x) => `−${fmt(x.l)}${x.l < num(x.asked) || /%/.test(x.asked) ? ` (demandé ${x.asked})` : ''} ${x.when === 'avant' ? 'avant le départ' : 'pendant le trajet'}`).join(' ; ')} · terrain au départ ${fmt(t.dep)} cm², à l’arrivée ${fmt(t.arr)} cm².`
+    ? `Pertes réelles : ${t.lost.map((x) => `−${fmt(x.l)} ${x.when === 'avant' ? 'avant le départ' : 'pendant le trajet'}${x.exact ? ' (montant exact)' : x.l < x.want ? ` (1 attaque : 20 % max, au lieu de ${fmt(x.want)})` : ' (1 attaque)'}`).join(' ; ')} · terrain au départ ${fmt(t.dep)} cm², à l’arrivée ${fmt(t.arr)} cm².`
     : '';
 };
 $('f').addEventListener('input', showSum);
@@ -155,13 +156,13 @@ $('paste').addEventListener('input', () => {
 });
 
 // réglages gardés sur cet appareil
-const FIELDS = ['tdc', 'weapons', 'shield', 'huntSpeed', 'min', 'max', 'l1', 'w1', 'l2', 'w2', ...ORDER.map((k) => `u-${k}`)];
-try { const s = JSON.parse(localStorage.getItem('simu') || '{}'); for (const f of FIELDS) if (s[f] != null) $(f).value = s[f]; for (const i of [1, 2]) $(`s${i}`).checked = !!s[`s${i}`]; } catch { /* rien */ }
+const FIELDS = ['tdc', 'weapons', 'shield', 'huntSpeed', 'min', 'max', 'l1', 'w1', 's1', 'l2', 'w2', 's2', ...ORDER.map((k) => `u-${k}`)];
+try { const s = JSON.parse(localStorage.getItem('simu') || '{}'); for (const f of FIELDS) if (s[f] != null) $(f).value = s[f]; } catch { /* rien */ }
 showSum();
 
 $('f').addEventListener('submit', async (e) => {
   e.preventDefault();
-  try { localStorage.setItem('simu', JSON.stringify({ ...Object.fromEntries(FIELDS.map((f) => [f, $(f).value])), s1: $('s1').checked, s2: $('s2').checked })); } catch { /* rien */ }
+  try { localStorage.setItem('simu', JSON.stringify(Object.fromEntries(FIELDS.map((f) => [f, $(f).value])))); } catch { /* rien */ }
   const t = terrains();
   // départ : l'heure choisie (aujourd'hui, ou demain si elle est déjà passée de plus d'une heure), sinon maintenant
   const depAt = (() => { const v = $('dep').value; if (!v) return new Date(); const [h, m] = v.split(':').map(Number); const d = new Date(); d.setHours(h, m, 0, 0); if (d < Date.now() - 3600000) d.setDate(d.getDate() + 1); return d; })();
