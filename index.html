@@ -33,6 +33,7 @@ th { font-size: 12px; color: var(--muted); font-weight: 600; }
 th:first-child, td:first-child { text-align: left; }
 tr.zero td { color: var(--muted); }
 .scroll { overflow-x: auto; }
+td .d, th .d { font-size: 11px; color: var(--muted); font-weight: 400; }
 .err { color: var(--warn); font-weight: 600; }
 .note { font-size: 12px; color: var(--muted); margin-top: 10px; }
 .new { background: var(--pick); border: 1px solid var(--accent); border-radius: 10px; padding: 10px 40px 10px 14px; margin-bottom: 16px; position: relative; font-size: 14px; }
@@ -182,10 +183,11 @@ $('f').addEventListener('submit', async (e) => {
     const r = await res.json();
     if (r.error) { out.innerHTML = `<p class="err">${r.error}</p>`; return; }
     const arr = (x) => hm(new Date(depAt.getTime() + duree(x) * 1000));
-    const line = (x, cls = '') => `<tr class="${cls}"><td>${fmt(x.taille)}</td><td>${x.risque.toLocaleString('fr-FR')} %</td><td>${fmt(x.pertes)}</td><td>${fmt(x.pertesGrosse)}</td><td>${fmt(x.pertesMoy)}</td><td>${dur(duree(x))}</td><td>${arr(x)}</td></tr>`;
+    // arrivée juste après la taille (visible sans faire défiler sur téléphone), durée en petit dessous
+    const line = (x, cls = '') => `<tr class="${cls}"><td>${fmt(x.taille)}</td><td><b>${arr(x)}</b><div class="d">${dur(duree(x))}</div></td><td>${x.risque.toLocaleString('fr-FR')} %</td><td>${fmt(x.pertes)}</td><td>${fmt(x.pertesGrosse)}</td><td>${fmt(x.pertesMoy)}</td></tr>`;
     const rows = [r.sansRisque && line(r.sansRisque, 'zero'), ...r.rows.map((x) => line(x))].filter(Boolean).join('');
     const text = [`Départ ${hm(depAt)} · terrain au départ ${fmt(t.dep)}, à l'arrivée ${fmt(t.arr)}`, 'Taille | Risque | Pertes hab. | Pertes grosse riposte | Pertes moy. | Durée | Arrivée', ...[r.sansRisque, ...r.rows].filter(Boolean).map((x) => `${x.taille} | ${x.risque} % | ${x.pertes} | ${x.pertesGrosse} | ${x.pertesMoy} | ${dur(duree(x))} | ${arr(x)}`)].join('\n');
-    out.innerHTML = `<div class="scroll"><table><thead><tr><th>Taille</th><th>Risque</th><th>Pertes</th><th>Grosse rip.</th><th>Moy.</th><th>Durée</th><th>Arrivée</th></tr></thead><tbody>${rows || '<tr><td colspan="7">Aucune taille dans cette plage de risque.</td></tr>'}</tbody></table></div>
+    out.innerHTML = `<p class="sum" style="margin-top:0">Départ <b>${hm(depAt)}</b> · terrain au départ ${fmt(t.dep)} cm², à l’arrivée ${fmt(t.arr)} cm²</p><div class="scroll"><table><thead><tr><th>Taille</th><th>Arrivée<div class="d">durée</div></th><th>Risque</th><th>Pertes</th><th>Grosse rip.</th><th>Moy.</th></tr></thead><tbody>${rows || '<tr><td colspan="6">Aucune taille dans cette plage de risque.</td></tr>'}</tbody></table></div>
       <button type="button" id="copy">Copier le tableau</button>
       <p class="note">Taille en cm². Pertes : chasse habituelle / en grosse riposte / moyenne, en unités les plus faibles (elles meurent en premier), blessée comprise. Ligne grisée : la plus grosse chasse sans risque de grosse riposte. Plus grosse chasse gagnée : ${fmt(r.plusGrosse.taille)} cm² (${r.plusGrosse.risque} % de risque). Départ ${hm(depAt)} ; durée sur le terrain au départ (${fmt(t.dep)} cm²), risque sur le terrain à l’arrivée (${fmt(t.arr)} cm²).</p>`;
     $('copy').onclick = () => navigator.clipboard?.writeText(text).then(() => { $('copy').textContent = 'Copié ✓'; });
