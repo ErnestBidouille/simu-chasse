@@ -35,12 +35,22 @@ tr.zero td { color: var(--muted); }
 .scroll { overflow-x: auto; }
 .err { color: var(--warn); font-weight: 600; }
 .note { font-size: 12px; color: var(--muted); margin-top: 10px; }
+.new { background: var(--pick); border: 1px solid var(--accent); border-radius: 10px; padding: 10px 40px 10px 14px; margin-bottom: 16px; position: relative; font-size: 14px; }
+.new b { color: var(--accent); }
+.new .x { position: absolute; top: 6px; right: 8px; margin: 0; padding: 2px 8px; background: transparent; color: var(--muted); font-size: 16px; }
+.loss { display: grid; grid-template-columns: 1fr 1.3fr auto; gap: 10px; align-items: end; margin-top: 8px; }
+.loss label.chk { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--ink); margin: 0 0 9px; white-space: nowrap; }
+.loss label.chk input { width: auto; }
+select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; }
+.sum { font-size: 13px; color: var(--muted); margin-top: 8px; }
+@media (max-width: 520px) { .loss { grid-template-columns: 1fr 1fr; } .loss label.chk { grid-column: 1 / -1; margin-bottom: 0; } }
 </style>
 </head>
 <body>
 <main>
   <h1>🐜 Simulateur de chasse</h1>
   <p class="sub">Risque de grosse riposte et pertes selon la taille de la chasse (modèle Bidouillezzz, calé sur de vraies chasses).</p>
+  <div class="new" id="new" hidden><b>Nouveau</b> · Pertes de terrain prévues (une attaque prend au plus 20 % du terrain, ou plusieurs attaques) avant le départ ou pendant le trajet, et heure de départ : le tableau donne l’heure d’arrivée de chaque taille. <button type="button" class="x" id="newx" title="Fermer">×</button></div>
 
   <form class="card" id="f">
     <h2 style="margin-top:0">Armée</h2>
@@ -48,8 +58,15 @@ tr.zero td { color: var(--muted); }
     <textarea id="paste" placeholder="ex. Troupes en chasses : 3 244 Jeunes Soldates Naines, 699 Soldates Naines, 86 Naines d'Elites, 1 273 Jeunes Soldates, 68 Soldates"></textarea>
     <div class="hint">Remplit les cases ci-dessous ; tu peux aussi les remplir à la main.</div>
     <div class="grid" id="units" style="margin-top:12px"></div>
-    <h2>Terrain</h2>
-    <div class="row c1"><div><label for="tdc">Terrain à l’arrivée de la chasse (cm²)</label><input id="tdc" inputmode="numeric" required></div></div>
+    <h2>Terrain et départ</h2>
+    <div class="row c2">
+      <div><label for="tdc">Terrain au moment du départ, sans les pertes ci-dessous (cm²)</label><input id="tdc" inputmode="numeric" required></div>
+      <div><label for="dep">Heure de départ (vide = maintenant)</label><input id="dep" type="time"></div>
+    </div>
+    <label style="margin-top:12px">Pertes de terrain prévues (facultatif)</label>
+    <div id="losses"></div>
+    <div class="hint">Une attaque prend au plus 20 % du terrain ; coche « plusieurs attaques » si la perte est découpée (chacune prend jusqu’à 20 % de ce qui reste). Avant le départ : la chasse est plus courte. Pendant le trajet : le risque se calcule sur le terrain à l’arrivée.</div>
+    <div class="sum" id="sum"></div>
     <h2>Niveaux</h2>
     <div class="row c3">
       <div><label for="weapons">Armes</label><input id="weapons" inputmode="numeric" value="0"></div>
@@ -81,6 +98,49 @@ const fmt = (n) => Math.round(n).toLocaleString('fr-FR');
 const dur = (s) => { const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return `${h}h${String(m).padStart(2, '0')}`; };
 
 for (const k of ORDER) $('units').insertAdjacentHTML('beforeend', `<div><label for="u-${k}">${k}</label><input id="u-${k}" inputmode="numeric" placeholder="0"></div>`);
+// deux pertes prévues au plus : montant (cm² ou %), moment, plusieurs attaques
+for (const i of [1, 2]) $('losses').insertAdjacentHTML('beforeend', `<div class="loss">
+  <div><label for="l${i}">Perte ${i} (cm² ou %)</label><input id="l${i}" placeholder="ex. 3000 ou 20 %"></div>
+  <div><label for="w${i}">Quand</label><select id="w${i}"><option value="avant">avant le départ</option><option value="trajet">pendant le trajet</option></select></div>
+  <label class="chk"><input type="checkbox" id="s${i}"> plusieurs attaques</label></div>`);
+
+// perte réelle : au plus 20 % du terrain par attaque, ou en plusieurs attaques (chacune 20 % de ce qui reste)
+const realLoss = (T, raw, split) => {
+  const v = String(raw || '').trim();
+  if (!v) return 0;
+  const want = Math.max(0, Math.round(/%/.test(v) ? T * num(v.replace('%', '')) / 100 : num(v)));
+  if (!split) return Math.min(want, Math.floor(T * 0.2));
+  let cur = T, lost = 0;
+  for (let k = 0; k < 50 && lost < want; k++) { const take = Math.min(Math.floor(cur * 0.2), want - lost); if (take <= 0) break; lost += take; cur -= take; }
+  return lost;
+};
+// terrain au départ et à l'arrivée, pertes réelles dans l'ordre (d'abord celles d'avant le départ)
+function terrains() {
+  let T = num($('tdc').value);
+  const out = { lost: [] };
+  for (const when of ['avant', 'trajet']) {
+    for (const i of [1, 2]) {
+      if ($(`w${i}`).value !== when || !$(`l${i}`).value.trim()) continue;
+      const l = realLoss(T, $(`l${i}`).value, $(`s${i}`).checked);
+      out.lost.push({ i, when, l, asked: $(`l${i}`).value.trim() });
+      T -= l;
+    }
+    if (when === 'avant') out.dep = T;
+  }
+  out.arr = T;
+  return out;
+}
+const showSum = () => {
+  const t = terrains();
+  $('sum').textContent = t.lost.length
+    ? `Pertes réelles : ${t.lost.map((x) => `−${fmt(x.l)}${x.l < num(x.asked) || /%/.test(x.asked) ? ` (demandé ${x.asked})` : ''} ${x.when === 'avant' ? 'avant le départ' : 'pendant le trajet'}`).join(' ; ')} · terrain au départ ${fmt(t.dep)} cm², à l’arrivée ${fmt(t.arr)} cm².`
+    : '';
+};
+$('f').addEventListener('input', showSum);
+
+// bandeau « Nouveau » : fermé une fois pour toutes sur cet appareil
+try { if (localStorage.getItem('simu-new') !== 'v2') $('new').hidden = false; } catch { $('new').hidden = false; }
+$('newx').onclick = () => { $('new').hidden = true; try { localStorage.setItem('simu-new', 'v2'); } catch { /* rien */ } };
 
 // « 3 244 Jeunes Soldates Naines, 699 Soldates Naines… » → cases
 $('paste').addEventListener('input', () => {
@@ -95,14 +155,23 @@ $('paste').addEventListener('input', () => {
 });
 
 // réglages gardés sur cet appareil
-const FIELDS = ['tdc', 'weapons', 'shield', 'huntSpeed', 'min', 'max', ...ORDER.map((k) => `u-${k}`)];
-try { const s = JSON.parse(localStorage.getItem('simu') || '{}'); for (const f of FIELDS) if (s[f] != null) $(f).value = s[f]; } catch { /* rien */ }
+const FIELDS = ['tdc', 'weapons', 'shield', 'huntSpeed', 'min', 'max', 'l1', 'w1', 'l2', 'w2', ...ORDER.map((k) => `u-${k}`)];
+try { const s = JSON.parse(localStorage.getItem('simu') || '{}'); for (const f of FIELDS) if (s[f] != null) $(f).value = s[f]; for (const i of [1, 2]) $(`s${i}`).checked = !!s[`s${i}`]; } catch { /* rien */ }
+showSum();
 
 $('f').addEventListener('submit', async (e) => {
   e.preventDefault();
-  try { localStorage.setItem('simu', JSON.stringify(Object.fromEntries(FIELDS.map((f) => [f, $(f).value])))); } catch { /* rien */ }
+  try { localStorage.setItem('simu', JSON.stringify({ ...Object.fromEntries(FIELDS.map((f) => [f, $(f).value])), s1: $('s1').checked, s2: $('s2').checked })); } catch { /* rien */ }
+  const t = terrains();
+  // départ : l'heure choisie (aujourd'hui, ou demain si elle est déjà passée de plus d'une heure), sinon maintenant
+  const depAt = (() => { const v = $('dep').value; if (!v) return new Date(); const [h, m] = v.split(':').map(Number); const d = new Date(); d.setHours(h, m, 0, 0); if (d < Date.now() - 3600000) d.setDate(d.getDate() + 1); return d; })();
+  const hm = (d) => d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }).replace(':', 'h');
+  // durée : (terrain au départ + taille) × 0,9^VC
+  const vc = num($('huntSpeed').value);
+  const duree = (x) => Math.round((t.dep + x.taille) * 0.9 ** vc);
   const army = Object.fromEntries(ORDER.map((k) => [k, num($(`u-${k}`).value)]).filter(([, n]) => n > 0));
-  const body = { tdc: num($('tdc').value), army, weapons: num($('weapons').value), shield: num($('shield').value), huntSpeed: num($('huntSpeed').value), min: num($('min').value), max: num($('max').value) };
+  // le risque se calcule sur le terrain à l'arrivée (pertes déduites)
+  const body = { tdc: Math.max(1, t.arr), army, weapons: num($('weapons').value), shield: num($('shield').value), huntSpeed: num($('huntSpeed').value), min: num($('min').value), max: num($('max').value) };
   const out = $('out');
   out.hidden = false;
   out.innerHTML = '<p class="note">Calcul…</p>';
@@ -111,12 +180,13 @@ $('f').addEventListener('submit', async (e) => {
     const res = await fetch(API, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const r = await res.json();
     if (r.error) { out.innerHTML = `<p class="err">${r.error}</p>`; return; }
-    const line = (x, cls = '') => `<tr class="${cls}"><td>${fmt(x.taille)}</td><td>${x.risque.toLocaleString('fr-FR')} %</td><td>${fmt(x.pertes)}</td><td>${fmt(x.pertesGrosse)}</td><td>${fmt(x.pertesMoy)}</td><td>${dur(x.duree)}</td></tr>`;
+    const arr = (x) => hm(new Date(depAt.getTime() + duree(x) * 1000));
+    const line = (x, cls = '') => `<tr class="${cls}"><td>${fmt(x.taille)}</td><td>${x.risque.toLocaleString('fr-FR')} %</td><td>${fmt(x.pertes)}</td><td>${fmt(x.pertesGrosse)}</td><td>${fmt(x.pertesMoy)}</td><td>${dur(duree(x))}</td><td>${arr(x)}</td></tr>`;
     const rows = [r.sansRisque && line(r.sansRisque, 'zero'), ...r.rows.map((x) => line(x))].filter(Boolean).join('');
-    const text = ['Taille | Risque | Pertes hab. | Pertes grosse riposte | Pertes moy. | Durée', ...[r.sansRisque, ...r.rows].filter(Boolean).map((x) => `${x.taille} | ${x.risque} % | ${x.pertes} | ${x.pertesGrosse} | ${x.pertesMoy} | ${dur(x.duree)}`)].join('\n');
-    out.innerHTML = `<div class="scroll"><table><thead><tr><th>Taille</th><th>Risque</th><th>Pertes</th><th>Grosse rip.</th><th>Moy.</th><th>Durée</th></tr></thead><tbody>${rows || '<tr><td colspan="6">Aucune taille dans cette plage de risque.</td></tr>'}</tbody></table></div>
+    const text = [`Départ ${hm(depAt)} · terrain au départ ${fmt(t.dep)}, à l'arrivée ${fmt(t.arr)}`, 'Taille | Risque | Pertes hab. | Pertes grosse riposte | Pertes moy. | Durée | Arrivée', ...[r.sansRisque, ...r.rows].filter(Boolean).map((x) => `${x.taille} | ${x.risque} % | ${x.pertes} | ${x.pertesGrosse} | ${x.pertesMoy} | ${dur(duree(x))} | ${arr(x)}`)].join('\n');
+    out.innerHTML = `<div class="scroll"><table><thead><tr><th>Taille</th><th>Risque</th><th>Pertes</th><th>Grosse rip.</th><th>Moy.</th><th>Durée</th><th>Arrivée</th></tr></thead><tbody>${rows || '<tr><td colspan="7">Aucune taille dans cette plage de risque.</td></tr>'}</tbody></table></div>
       <button type="button" id="copy">Copier le tableau</button>
-      <p class="note">Taille en cm². Pertes : chasse habituelle / en grosse riposte / moyenne, en unités les plus faibles (elles meurent en premier), blessée comprise. Ligne grisée : la plus grosse chasse sans risque de grosse riposte. Plus grosse chasse gagnée : ${fmt(r.plusGrosse.taille)} cm² (${r.plusGrosse.risque} % de risque).</p>`;
+      <p class="note">Taille en cm². Pertes : chasse habituelle / en grosse riposte / moyenne, en unités les plus faibles (elles meurent en premier), blessée comprise. Ligne grisée : la plus grosse chasse sans risque de grosse riposte. Plus grosse chasse gagnée : ${fmt(r.plusGrosse.taille)} cm² (${r.plusGrosse.risque} % de risque). Départ ${hm(depAt)} ; durée sur le terrain au départ (${fmt(t.dep)} cm²), risque sur le terrain à l’arrivée (${fmt(t.arr)} cm²).</p>`;
     $('copy').onclick = () => navigator.clipboard?.writeText(text).then(() => { $('copy').textContent = 'Copié ✓'; });
   } catch (err) {
     out.innerHTML = `<p class="err">Serveur injoignable (${err.message}).</p>`;
