@@ -67,7 +67,7 @@ button.del { margin: 0 0 4px; padding: 6px 10px; background: transparent; color:
       <div><label for="tdc">Terrain actuel (cm²)</label><input id="tdc" inputmode="numeric" required></div>
       <div><label for="dep">Heure de départ</label><input id="dep" type="time"></div>
     </div>
-    <div class="hint">Terrain sans les pertes ci-dessous ; heure vide = départ maintenant.</div>
+    <div class="hint">Terrain actuel <b>+ les chasses en cours qui rentrent avant le départ</b>, sans les pertes ci-dessous ; heure vide = départ maintenant.</div>
     <label style="margin-top:12px">Pertes de terrain prévues (facultatif)</label>
     <div id="losses"></div>
     <button type="button" class="add" id="addLoss">+ ajouter une perte</button>
