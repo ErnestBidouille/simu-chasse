@@ -56,7 +56,7 @@ button.del { margin: 0 0 4px; padding: 6px 10px; background: transparent; color:
 <main>
   <h1>🐜 Simulateur de chasse</h1>
   <p class="sub">Risque de grosse riposte et pertes selon la taille de la chasse (modèle Bidouillezzz, calé sur de vraies chasses).</p>
-  <div class="new" id="new" hidden><b>Nouveau</b> · Pertes de terrain prévues (en 1 attaque, 20 % du terrain au plus, ou montant exact) avant le départ ou pendant le trajet, et heure de départ : le tableau donne l’heure d’arrivée de chaque taille. <button type="button" class="x" id="newx" title="Fermer">×</button></div>
+  <div class="new" id="new" hidden><b>Nouveau</b> · Chasses en parallèle : coche « partager l’armée » pour comparer une seule chasse à 2, 3… chasses lancées ensemble (cm² par heure, pertes, composition de chaque part). <button type="button" class="x" id="newx" title="Fermer">×</button></div>
 
   <form class="card" id="f">
     <h2 style="margin-top:0">Armée</h2>
@@ -86,6 +86,12 @@ button.del { margin: 0 0 4px; padding: 6px 10px; background: transparent; color:
       <div><label for="min">Min (%)</label><input id="min" inputmode="numeric" value="15"></div>
       <div><label for="max">Max (%)</label><input id="max" inputmode="numeric" value="30"></div>
     </div>
+    <h2>Chasses en parallèle</h2>
+    <div class="row c2" style="align-items:end">
+      <div><label class="chk"><input type="checkbox" id="par" style="width:auto;height:auto;margin-right:6px">partager l’armée en plusieurs chasses</label></div>
+      <div><label for="running">Chasses déjà en cours</label><input id="running" inputmode="numeric" value="0"></div>
+    </div>
+    <div class="hint">L’armée est coupée en parts égales type par type (la dernière garde les restes), toutes les chasses ont la même taille et rentrent ensemble. Chaque chasse est plus difficile que la précédente (terrain à l’arrivée + les chasses parties avant) : le partage rapporte quand la chasse possible fait au moins ~20 % du terrain (juste après un flood). Taille de la chasse seule : la plus grosse sous le risque max.</div>
     <div class="hint" id="status">Le tableau se calcule tout seul dès que le terrain et l’armée sont remplis.</div>
   </form>
 
@@ -161,8 +167,8 @@ const showSum = () => {
 $('f').addEventListener('input', showSum);
 
 // bandeau « Nouveau » : fermé une fois pour toutes sur cet appareil
-try { if (localStorage.getItem('simu-new') !== 'v2') $('new').hidden = false; } catch { $('new').hidden = false; }
-$('newx').onclick = () => { $('new').hidden = true; try { localStorage.setItem('simu-new', 'v2'); } catch { /* rien */ } };
+try { if (localStorage.getItem('simu-new') !== 'v3') $('new').hidden = false; } catch { $('new').hidden = false; }
+$('newx').onclick = () => { $('new').hidden = true; try { localStorage.setItem('simu-new', 'v3'); } catch { /* rien */ } };
 
 // « 3 244 Jeunes Soldates Naines, 699 Soldates Naines… » → cases
 $('paste').addEventListener('input', () => {
@@ -177,10 +183,11 @@ $('paste').addEventListener('input', () => {
 });
 
 // réglages gardés sur cet appareil
-const FIELDS = ['tdc', 'weapons', 'shield', 'huntSpeed', 'min', 'max', ...ORDER.map((k) => `u-${k}`)];
+const FIELDS = ['tdc', 'weapons', 'shield', 'huntSpeed', 'min', 'max', 'running', ...ORDER.map((k) => `u-${k}`)];
 try {
   const s = JSON.parse(localStorage.getItem('simu') || '{}');
   for (const f of FIELDS) if (s[f] != null) $(f).value = s[f];
+  $('par').checked = !!s.par;
   // pertes gardées ; anciennes réglages (deux lignes fixes l1/l2) repris s'ils étaient remplis
   const saved = Array.isArray(s.losses) ? s.losses : [1, 2].filter((i) => s[`l${i}`]).map((i) => ({ l: s[`l${i}`], w: s[`w${i}`], s: s[`s${i}`] }));
   for (const v of saved) addLoss(v);
@@ -205,7 +212,7 @@ if (ready()) schedule(0);
 
 async function run() {
   const my = ++seq;
-  try { localStorage.setItem('simu', JSON.stringify({ ...Object.fromEntries(FIELDS.map((f) => [f, $(f).value])), losses: lossValues() })); } catch { /* rien */ }
+  try { localStorage.setItem('simu', JSON.stringify({ ...Object.fromEntries(FIELDS.map((f) => [f, $(f).value])), par: $('par').checked, losses: lossValues() })); } catch { /* rien */ }
   const t = terrains();
   // départ : l'heure choisie (aujourd'hui, ou demain si elle est déjà passée de plus d'une heure), sinon maintenant
   const depAt = (() => { const v = $('dep').value; if (!v) return new Date(); const [h, m] = v.split(':').map(Number); const d = new Date(); d.setHours(h, m, 0, 0); if (d < Date.now() - 3600000) d.setDate(d.getDate() + 1); return d; })();
@@ -215,7 +222,9 @@ async function run() {
   const duree = (x) => Math.round((t.dep + x.taille) * 0.9 ** vc);
   const army = Object.fromEntries(ORDER.map((k) => [k, num($(`u-${k}`).value)]).filter(([, n]) => n > 0));
   // le risque se calcule sur le terrain à l'arrivée (pertes déduites)
-  const body = { tdc: Math.max(1, t.arr), army, weapons: num($('weapons').value), shield: num($('shield').value), huntSpeed: num($('huntSpeed').value), min: num($('min').value), max: num($('max').value) };
+  const par = $('par').checked;
+  const body = { tdc: Math.max(1, t.arr), army, weapons: num($('weapons').value), shield: num($('shield').value), huntSpeed: num($('huntSpeed').value), min: num($('min').value), max: num($('max').value),
+    ...(par ? { parallele: true, tdcDepart: Math.max(1, t.dep), slots: Math.max(1, vc + 1 - num($('running').value)) } : {}) };
   const out = $('out');
   try {
     const res = await fetch(API, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -230,8 +239,17 @@ async function run() {
     const span = (lo, hi) => (lo == null ? `jusqu’à ${fmt(hi)}` : lo === hi ? `≈ ${fmt(hi)}` : `${fmt(lo)} à ${fmt(hi)}`);
     const line = (x, cls = '') => `<tr class="${cls}"><td>${fmt(x.taille)}</td><td><b>${arr(x)}</b><div class="d">${dur(duree(x))}</div></td><td>${x.risque.toLocaleString('fr-FR')} %</td><td>${fmt(x.pertes)}<div class="d">${span(x.pertesBas, x.pertesHaut)}</div></td><td>${fmt(x.pertesGrosse)}${x.pertesGrosseHaut ? `<div class="d">${span(x.pertesGrosseBas, x.pertesGrosseHaut)}</div>` : ''}</td><td>${fmt(x.pertesMoy)}</td></tr>`;
     const rows = [r.sansRisque && line(r.sansRisque, 'zero'), ...r.rows.map((x) => line(x))].filter(Boolean).join('');
-    const text = [`Départ ${hm(depAt)} · terrain au départ ${fmt(t.dep)}, à l'arrivée ${fmt(t.arr)}`, 'Taille | Risque | Pertes hab. (8 sur 10 entre) | Pertes grosse riposte (8 sur 10 entre) | Pertes moy. | Durée | Arrivée', ...[r.sansRisque, ...r.rows].filter(Boolean).map((x) => `${x.taille} | ${x.risque} % | ${x.pertes} (${span(x.pertesBas, x.pertesHaut)}) | ${x.pertesGrosse}${x.pertesGrosseHaut ? ` (${span(x.pertesGrosseBas, x.pertesGrosseHaut)})` : ''} | ${x.pertesMoy} | ${dur(duree(x))} | ${arr(x)}`)].join('\n');
+    // chasses en parallèle : une ligne par nombre de chasses, la meilleure par heure en gras, composition au survol
+    const P = par && Array.isArray(r.parallele) ? r.parallele : null;
+    const best = P && P.length ? P.reduce((b, o) => (o.parHeure > b.parHeure ? o : b), P[0]) : null;
+    const comp = (a) => ORDER.filter((k) => a[k]).map((k) => `${fmt(a[k])} ${k}`).join(' + ');
+    const parTable = !par ? '' : !P ? '<p class="err">Chasses en parallèle : le serveur n’a rien renvoyé (version en cours de mise à jour ?).</p>' : !P.length ? '<p class="note">Chasses en parallèle : aucune chasse sous le risque max.</p>'
+      : `<h2>Une seule ou en parallèle</h2><div class="scroll"><table><thead><tr><th>Chasses</th><th>Taille<div class="d">total</div></th><th>Arrivée<div class="d">durée</div></th><th>cm²/h</th><th>vs une seule</th><th>Pertes moy.</th></tr></thead><tbody>${P.map((o) => `<tr${o === best ? ' style="font-weight:700"' : ''} title="${o.parts.map((a, i) => `part ${i + 1} : ${comp(a)}`).join('&#10;')}"><td>${o === best ? '⭐ ' : ''}${o.n === 1 ? 'une seule' : `${o.n} ensemble`}</td><td>${fmt(o.taille)}<div class="d">${fmt(o.total)}</div></td><td><b>${hm(new Date(depAt.getTime() + o.duree * 1000))}</b><div class="d">${dur(o.duree)}</div></td><td>${fmt(o.parHeure)}</td><td>${o.n === 1 ? '—' : `${o.vsUne >= 0 ? '+' : ''}${o.vsUne.toLocaleString('fr-FR')} %`}</td><td>${fmt(o.pertesMoy)}</td></tr>`).join('')}</tbody></table></div>
+        <p class="note">⭐ = le plus de cm² par heure. Survole (ou touche) une ligne pour la composition de chaque part. Risque de grosse riposte de chaque chasse : ${[...new Set(P.map((o) => o.risque))].join(' à ')} %.${best && best.n > 1 ? ` Part de ${best.n} : ${comp(best.parts[0])}.` : ''}</p>`;
+    const text = [`Départ ${hm(depAt)} · terrain au départ ${fmt(t.dep)}, à l'arrivée ${fmt(t.arr)}`, 'Taille | Risque | Pertes hab. (8 sur 10 entre) | Pertes grosse riposte (8 sur 10 entre) | Pertes moy. | Durée | Arrivée', ...[r.sansRisque, ...r.rows].filter(Boolean).map((x) => `${x.taille} | ${x.risque} % | ${x.pertes} (${span(x.pertesBas, x.pertesHaut)}) | ${x.pertesGrosse}${x.pertesGrosseHaut ? ` (${span(x.pertesGrosseBas, x.pertesGrosseHaut)})` : ''} | ${x.pertesMoy} | ${dur(duree(x))} | ${arr(x)}`),
+      ...(P && P.length ? ['', 'Chasses | Taille | Total | cm²/h | vs une seule | Pertes moy. | Arrivée', ...P.map((o) => `${o.n} | ${o.taille} | ${o.total} | ${o.parHeure} | ${o.n === 1 ? '—' : `${o.vsUne} %`} | ${o.pertesMoy} | ${hm(new Date(depAt.getTime() + o.duree * 1000))}`)] : [])].join('\n');
     out.innerHTML = `<p class="sum" style="margin-top:0">Départ <b>${hm(depAt)}</b> · terrain au départ ${fmt(t.dep)} cm², à l’arrivée ${fmt(t.arr)} cm²</p><div class="scroll"><table><thead><tr><th>Taille</th><th>Arrivée<div class="d">durée</div></th><th>Risque</th><th>Pertes</th><th>Grosse rip.</th><th>Moy.</th></tr></thead><tbody>${rows || '<tr><td colspan="6">Aucune taille dans cette plage de risque.</td></tr>'}</tbody></table></div>
+      ${parTable}
       <button type="button" id="copy">Copier le tableau</button>
       <p class="note">Taille en cm². Pertes : chasse habituelle / en grosse riposte / moyenne ; en dessous, la fourchette où tombent 8 chasses sur 10 (1 sur 10 fait mieux, 1 sur 10 fait pire) : le tirage des prédateurs fait varier les pertes autour de la moyenne, dans les deux cas. Pertes en unités les plus faibles (elles meurent en premier), blessée comprise. Ligne grisée : la plus grosse chasse sans risque de grosse riposte. Plus grosse chasse gagnée : ${fmt(r.plusGrosse.taille)} cm² (${r.plusGrosse.risque} % de risque). Départ ${hm(depAt)} ; durée sur le terrain au départ (${fmt(t.dep)} cm²), risque sur le terrain à l’arrivée (${fmt(t.arr)} cm²).</p>`;
     $('copy').onclick = () => navigator.clipboard?.writeText(text).then(() => { $('copy').textContent = 'Copié ✓'; });
