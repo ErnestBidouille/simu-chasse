@@ -228,10 +228,12 @@ async function run() {
   const out = $('out');
   try {
     const res = await fetch(API, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    const r = await res.json();
+    const r = await res.json().catch(() => ({}));
     if (my !== seq) return; // un calcul plus récent est parti entre-temps
     out.hidden = false;
     $('status').textContent = '';
+    // réponse sans tableau (calcul coupé par le serveur, code 546 : temps de calcul dépassé) : message clair, pas d'erreur de page
+    if (!r.error && !Array.isArray(r.rows)) r.error = res.status === 546 ? 'Calcul trop long pour le serveur : réessaie dans un instant.' : `Réponse inattendue du serveur (${res.status}).`;
     if (r.error) { out.innerHTML = `<p class="err">${r.error}</p>`; return; }
     const arr = (x) => hm(new Date(depAt.getTime() + duree(x) * 1000));
     // arrivée juste après la taille (visible sans faire défiler sur téléphone), durée en petit dessous
