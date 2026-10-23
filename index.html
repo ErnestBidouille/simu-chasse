@@ -93,6 +93,7 @@ button.del { margin: 0 0 4px; padding: 6px 10px; background: transparent; color:
     </div>
     <div class="hint">L’armée est coupée en parts égales type par type (la dernière garde les restes), toutes les chasses ont la même taille et rentrent ensemble. Chaque chasse est plus difficile que la précédente (terrain à l’arrivée + les chasses parties avant) : le partage rapporte quand la chasse possible fait au moins ~20 % du terrain (juste après un flood). Taille de la chasse seule : la plus grosse sous le risque max.</div>
     <div class="hint" id="status">Le tableau se calcule tout seul dès que le terrain et l’armée sont remplis.</div>
+    <button type="button" class="add" id="copyCfg" title="Copier tous les réglages : armée, terrain, départ, pertes, niveaux, risque, chasses en parallèle">📋 Copier la config</button>
   </form>
 
   <div class="card" id="out" hidden></div>
@@ -181,6 +182,29 @@ $('paste').addEventListener('input', () => {
   }
   if (Object.keys(found).length) for (const k of ORDER) $(`u-${k}`).value = found[k] ? fmt(found[k]) : '';
 });
+
+// toute la config (texte lisible + une ligne JSON, celle gardée sur l'appareil), pour la garder ou l'envoyer (23 oct.)
+$('copyCfg').onclick = () => {
+  const t = terrains();
+  const army = ORDER.filter((k) => num($(`u-${k}`).value) > 0).map((k) => `${fmt(num($(`u-${k}`).value))} ${k}`).join(', ') || 'aucune unité';
+  const losses = lossValues().filter((x) => x.l.trim()).map((x) => `${x.l.trim()} ${x.w === 'trajet' ? 'en route' : 'avant départ'} (${x.s === 'exact' ? 'montant exact' : '1 attaque'})`);
+  const now = new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const cfg = { ...Object.fromEntries([...FIELDS, 'dep'].map((f) => [f, $(f).value]).filter(([, v]) => v !== '')), par: $('par').checked, losses: lossValues().filter((x) => x.l.trim()) };
+  const text = [
+    `Config simulateur de chasse · ${now}`,
+    `Armée : ${army}`,
+    `Terrain actuel : ${fmt(num($('tdc').value))} cm² · départ ${$('dep').value || 'maintenant'}`,
+    `Pertes prévues : ${losses.length ? `${losses.join(' ; ')} → terrain au départ ${fmt(t.dep)}, à l’arrivée ${fmt(t.arr)}` : 'aucune'}`,
+    `Armes ${num($('weapons').value)} · Bouclier ${num($('shield').value)} · VC ${num($('huntSpeed').value)}`,
+    `Risque de grosse riposte : ${num($('min').value)} à ${num($('max').value)} %`,
+    `Chasses en parallèle : ${$('par').checked ? `oui (${num($('running').value)} déjà en cours)` : 'non'}`,
+    JSON.stringify(cfg),
+  ].join('\n');
+  const b = $('copyCfg');
+  (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject())
+    .then(() => { b.textContent = 'Config copiée ✓'; }, () => { b.textContent = 'Copie refusée par le navigateur'; })
+    .finally(() => setTimeout(() => { b.textContent = '📋 Copier la config'; }, 2500));
+};
 
 // réglages gardés sur cet appareil
 const FIELDS = ['tdc', 'weapons', 'shield', 'huntSpeed', 'min', 'max', 'running', ...ORDER.map((k) => `u-${k}`)];
