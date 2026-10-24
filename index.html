@@ -86,6 +86,7 @@ button.del { margin: 0 0 4px; padding: 6px 10px; background: transparent; color:
       <div><label for="min">Min (%)</label><input id="min" inputmode="numeric" value="15"></div>
       <div><label for="max">Max (%)</label><input id="max" inputmode="numeric" value="30"></div>
     </div>
+    <button type="button" class="add" id="zeroRisk" title="Min et max à 0 % : seulement la plus grosse chasse sans aucun risque de grosse riposte (et les chasses en parallèle sans risque)">0 % (sans risque)</button>
     <h2>Chasses en parallèle</h2>
     <div class="row c2" style="align-items:end">
       <div><label class="chk"><input type="checkbox" id="par" style="width:auto;height:auto;margin-right:6px">partager l’armée en plusieurs chasses</label></div>
@@ -232,6 +233,7 @@ const schedule = (delay = 700) => {
 $('f').addEventListener('input', () => schedule());
 $('f').addEventListener('change', () => schedule());
 $('f').addEventListener('submit', (e) => { e.preventDefault(); schedule(0); });
+$('zeroRisk').addEventListener('click', () => { $('min').value = '0'; $('max').value = '0'; schedule(0); });
 if (ready()) schedule(0);
 
 async function run() {
