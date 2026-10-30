@@ -47,6 +47,15 @@ td .d, th .d { font-size: 11px; color: var(--muted); font-weight: 400; }
 .loss label.chk input { width: auto; }
 select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; }
 .sum { font-size: 13px; color: var(--muted); margin-top: 8px; }
+.steps { margin: 8px 0 10px; padding-left: 20px; }
+.steps li { margin-bottom: 6px; }
+.steps a { color: var(--accent); font-weight: 600; }
+code { font-size: 13px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; }
+.loginrow { display: flex; gap: 8px; align-items: center; }
+.loginrow input { flex: 1; min-width: 0; }
+.loginrow button { margin-top: 0; white-space: nowrap; }
+.who { font-size: 13px; color: var(--muted); margin: 0 0 12px; }
+button.link { margin: 0; padding: 0; background: none; color: var(--accent); font: inherit; text-decoration: underline; }
 button.add { margin-top: 8px; padding: 6px 12px; background: transparent; color: var(--accent); border: 1px dashed var(--accent); font-size: 14px; }
 button.del { margin: 0 0 4px; padding: 6px 10px; background: transparent; color: var(--muted); border: 1px solid var(--line); font-size: 14px; }
 @media (max-width: 520px) { .loss select { font-size: 13px; padding: 8px 4px; } .loss { grid-template-columns: 1fr 1fr auto; padding-top: 8px; border-top: 1px dashed var(--line); } .loss > div:first-child { grid-column: 1 / 3; } .loss .del { grid-column: 3; grid-row: 1; } .loss > div:nth-child(2) { grid-column: 1; } .loss > div:nth-child(3) { grid-column: 2 / 4; } }
@@ -58,7 +67,20 @@ button.del { margin: 0 0 4px; padding: 6px 10px; background: transparent; color:
   <p class="sub">Risque de grosse riposte et pertes selon la taille de la chasse (modèle Bidouillezzz, calé sur de vraies chasses).</p>
   <div class="new" id="new" hidden><b>Nouveau</b> · Chasses en parallèle : coche « partager l’armée » pour comparer une seule chasse à 2, 3… chasses lancées ensemble (cm² par heure, pertes, composition de chaque part). <button type="button" class="x" id="newx" title="Fermer">×</button></div>
 
-  <form class="card" id="f">
+  <div class="card" id="login" hidden>
+    <h2 style="margin-top:0">Connexion</h2>
+    <p style="margin:0">Le simulateur est réservé à la 4O4. Prouve ton pseudo avec un jeton du jeu, une fois par mois :</p>
+    <ol class="steps">
+      <li>Connecté à Fourmizzz dans ce navigateur, ouvre <a href="https://s5.fourmizzz.fr/api.php?getToken" target="_blank" rel="noopener">ce lien du jeu</a> : il affiche <code>{"token":"…"}</code>.</li>
+      <li>Copie ce qu’il affiche et colle-le ici :</li>
+    </ol>
+    <form class="loginrow" id="loginForm"><input id="jeton" placeholder='{"token":"…"}' autocomplete="off" spellcheck="false"><button type="submit" id="loginBtn">Se connecter</button></form>
+    <p class="err" id="loginErr" role="status"></p>
+    <p class="hint">Le jeton ne sert qu’une fois et ne prouve que ton pseudo : ni mot de passe, ni accès à ton compte. Le simulateur note qui s’en sert (pseudo et nombre de calculs par jour).</p>
+  </div>
+  <p class="who" id="who" hidden>Connecté : <b id="whoName"></b> · <button type="button" class="link" id="logout">se déconnecter</button></p>
+
+  <form class="card" id="f" hidden>
     <h2 style="margin-top:0">Armée</h2>
     <label for="paste">Coller l’armée du jeu (facultatif)</label>
     <textarea id="paste" placeholder="ex. Troupes en chasses : 3 244 Jeunes Soldates Naines, 699 Soldates Naines, 86 Naines d'Elites, 1 273 Jeunes Soldates, 68 Soldates"></textarea>
@@ -101,6 +123,11 @@ button.del { margin: 0 0 4px; padding: 6px 10px; background: transparent; color:
 </main>
 <script>
 const API = 'https://ingizjfdafwpayvrxvwq.supabase.co/functions/v1/simu-chasse';
+// connexion (30 oct.) : jeton du jeu vérifié par la fonction auth-joueur (4O4 seulement) → clé gardée 30 jours dans ce
+// navigateur, envoyée avec chaque calcul
+const AUTH = 'https://ingizjfdafwpayvrxvwq.supabase.co/functions/v1/auth-joueur';
+const SESSION = 'simu-session';
+const session = () => { try { const s = JSON.parse(localStorage.getItem(SESSION) || 'null'); return s && s.cle && s.expire > Date.now() ? s : null; } catch { return null; } };
 const UNITS = [
   ['JSN', /jeunes? soldates? naines?/], ['SN', /soldates? naines?/], ['NE', /naines? d.?[ée]lites?/],
   ['JS', /jeunes? soldates?/], ['SE', /soldates? d.?[ée]lites?/], ['S', /soldates?/],
@@ -234,6 +261,33 @@ $('f').addEventListener('input', () => schedule());
 $('f').addEventListener('change', () => schedule());
 $('f').addEventListener('submit', (e) => { e.preventDefault(); schedule(0); });
 $('zeroRisk').addEventListener('click', () => { $('min').value = '0'; $('max').value = '0'; schedule(0); });
+function showSession() {
+  const s = session();
+  $('login').hidden = !!s;
+  $('f').hidden = !s;
+  $('who').hidden = !s;
+  if (s) $('whoName').textContent = s.pseudo;
+  else $('out').hidden = true;
+}
+$('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = $('loginBtn');
+  btn.disabled = true;
+  $('loginErr').textContent = '';
+  try {
+    const res = await fetch(AUTH, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ serveur: 's5', jeton: $('jeton').value }) });
+    const r = await res.json().catch(() => ({}));
+    if (!res.ok || !r.cle) throw new Error(r.error || `Connexion impossible (${res.status}).`);
+    try { localStorage.setItem(SESSION, JSON.stringify({ cle: r.cle, pseudo: r.pseudo, expire: r.expire })); } catch { throw new Error('Ce navigateur refuse de garder la connexion (navigation privée ?).'); }
+    $('jeton').value = '';
+    showSession();
+    if (ready()) schedule(0);
+  } catch (err) {
+    $('loginErr').textContent = err.message;
+  } finally { btn.disabled = false; }
+});
+$('logout').onclick = () => { try { localStorage.removeItem(SESSION); } catch { /* rien */ } showSession(); };
+showSession();
 if (ready()) schedule(0);
 
 async function run() {
@@ -252,10 +306,19 @@ async function run() {
   const body = { tdc: Math.max(1, t.arr), army, weapons: num($('weapons').value), shield: num($('shield').value), huntSpeed: num($('huntSpeed').value), min: num($('min').value), max: num($('max').value),
     ...(par ? { parallele: true, tdcDepart: Math.max(1, t.dep), slots: Math.max(1, vc + 1 - num($('running').value)) } : {}) };
   const out = $('out');
+  const s = session();
+  if (!s) { showSession(); return; }
+  body.cle = s.cle;
   try {
     const res = await fetch(API, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const r = await res.json().catch(() => ({}));
     if (my !== seq) return; // un calcul plus récent est parti entre-temps
+    if (res.status === 401) {
+      try { localStorage.removeItem(SESSION); } catch { /* rien */ }
+      showSession();
+      $('loginErr').textContent = r.error || 'Connexion expirée : reconnecte-toi.';
+      return;
+    }
     out.hidden = false;
     $('status').textContent = '';
     // réponse sans tableau (calcul coupé par le serveur, code 546 : temps de calcul dépassé) : message clair, pas d'erreur de page
